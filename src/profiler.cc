@@ -1,34 +1,35 @@
 #include <asm/unistd.h>
-#include <linux/hw_breakpoint.h>
-#include <linux/perf_event.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/epoll.h>
 #include <sys/ioctl.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-static long perf_event_open(struct perf_event_attr* hw_event, pid_t pid,
-                            int cpu, int group_fd, unsigned long flags) {
-  return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
-}
+#include "log.h"
+#include "perf_lib.hh"
 
 void run_profiler(pid_t child_pid, int perf_fd) {
-  // TODO: Process samples in the perf_event file
+  int epoll_fd = epoll_create1(/*flags=*/0);
+  REQUIRE(epoll_fd != -1) << "epoll_create1 failed: " << strerror(errno);
 
-  // Instead of profiling, just wait for the child to exit
-  int status;
-  while (waitpid(child_pid, &status, 0) != -1 && !WIFEXITED(status) &&
-         !WIFSIGNALED(status)) {
-  }
+  struct epoll_event ev;
+  ev.events = EPOLLIN;
+  REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, perf_fd, &ev) != -1)
+      << "epoll_ct ADD failed: " << strerror(errno);
+
+  REQUIRE(epoll_wait(epoll_fd, nullptr, /*maxevents=*/10, 10) != -1)
+      << "epoll_wait failed: " << strerror(errno);
 
   // Print the count of events from perf_event
   printf("\nProfiler Output:\n");
 
   long long count;
-  read(perf_fd, &count, sizeof(long long));
+  REQUIRE(read(perf_fd, &count, sizeof(long long)) == sizeof(long long))
+      << "read failed: " << strerror(errno);
   printf("  ref cycles: %lld\n", count);
 }
 
@@ -42,60 +43,31 @@ int main(int argc, char** argv) {
 
   // Create a pipe so the parent can tell the child to exec
   int pipefd[2];
-  if (pipe(pipefd) == -1) {
-    perror("pipe failed");
-    exit(2);
-  }
+  REQUIRE(pipe(pipefd) == 0) << "pipe failed: " << strerror(errno);
 
   // Create a child process
   pid_t child_pid = fork();
+  REQUIRE(child_pid != -1) << "fork failed: " << strerror(errno);
 
-  if (child_pid == -1) {
-    perror("fork failed");
-    exit(2);
-  } else if (child_pid == 0) {
+  if (child_pid == 0) {
     // In child process. Read from the pipe to pause until the parent resumes
     // the child.
     char c;
-    if (read(pipefd[0], &c, 1) != 1) {
-      perror("read from pipe failed");
-      exit(2);
-    }
+    REQUIRE(read(pipefd[0], &c, 1) == 1) << "read failed: " << strerror(errno);
     close(pipefd[0]);
+    close(pipefd[1]);
 
-    // Exec the requested command
-    if (execvp(argv[1], &argv[1])) {
-      perror("exec failed");
-      exit(2);
-    }
+    REQUIRE(execvp(argv[1], &argv[1])) << "execvp failed: " << strerror(errno);
   } else {
     // In the parent process
 
     // Set up perf_event for the child process
-    struct perf_event_attr pe = {
-        .size = sizeof(struct perf_event_attr),
-        .type = PERF_TYPE_HARDWARE,  // Count occurrences of a hardware event
-        .config = PERF_COUNT_HW_REF_CPU_CYCLES,  // Count cycles on the CPU
-                                                 // independent of frequency
-                                                 // scaling
-        .disabled = 1,  // Start the counter in a disabled state
-        .inherit = 1,   // Processes or threads created in the child should also
-                        // be profiled
-        .exclude_kernel = 1,  // Do not take samples in the kernel
-        .exclude_hv = 1,      // Do not take samples in the hypervisor
-        .enable_on_exec = 1   // Enable profiling on the first exec call
-    };
-
-    int perf_fd = perf_event_open(&pe, child_pid, -1, -1, 0);
-    if (perf_fd == -1) {
-      fprintf(stderr, "perf_event_open failed\n");
-      perror("perf");
-      exit(2);
-    }
 
     // Wake up the child process by writing to the pipe
     char c = 'A';
-    write(pipefd[1], &c, 1);
+    REQUIRE(write(pipefd[1], &c, 1) == 1)
+        << "write failed: " << strerror(errno);
+    close(pipefd[0]);
     close(pipefd[1]);
 
     // Start profiling
