@@ -17,19 +17,39 @@ struct SampleRecord {
 
 class PerfLib {
  public:
-  void PerfEventOpen(pid_t child_pid);
+  int PerfEventOpen(pid_t child_pid);
   SampleRecord *GetNextRecord();
-  inline bool HasNextRecord();
-  inline void StartSampling();
-  inline void StopSampling();
-  inline void ResetSampling();
+
+  // stop, resume, or reset sampling
+  void StartSampling() {
+    REQUIRE(ioctl(fd_, PERF_EVENT_IOC_ENABLE, 1) != -1)
+        << "Failed to start perf event: " << strerror(errno) << " (" << fd_
+        << ")";
+  }
+
+  void StopSampling() {
+    REQUIRE(ioctl(fd_, PERF_EVENT_IOC_DISABLE, 0) != -1)
+        << "Failed to stop perf event: " << strerror(errno) << " (" << fd_
+        << ")";
+  }
+
+  void ResetSampling() {
+    REQUIRE(ioctl(fd_, PERF_EVENT_IOC_RESET, 0) != -1)
+        << "Failed to reset perf event: " << strerror(errno) << " (" << fd_
+        << ")";
+  }
 
  private:
-  struct perf_event_attr SetupAttribute();
+  // Setup the mmap ring buffer
   void SetupRingBuffer();
 
+  // Decide if next record exists or not
+  bool HasNextRecord() {
+    return mmap_header_->data_head != mmap_header_->data_tail;
+  }
+
   int fd_;
-  perf_event_mmap_page *header_;
+  perf_event_mmap_page *mmap_header_;
   void *data_;
 };
 
