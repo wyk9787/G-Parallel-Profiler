@@ -23,7 +23,7 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
 }
 }  // namespace
 
-SampleRecord *PerfLib::GetNextAndHandleRecord() {
+void *PerfLib::GetNextRecord(int *type) {
   if (!HasNextRecord()) return nullptr;
   perf_event_header *event_header = reinterpret_cast<perf_event_header *>(
       reinterpret_cast<uintptr_t>(data_) +
@@ -31,25 +31,12 @@ SampleRecord *PerfLib::GetNextAndHandleRecord() {
 
   void *event_data = reinterpret_cast<void *>(
       reinterpret_cast<uintptr_t>(event_header) + sizeof(perf_event_header));
+  *type = event_header->type;
 
   // Advance our tail pointer manually
   // Kernel will update this for us
   mmap_header_->data_tail += event_header->size;
-  HandleRecord(event_header);
-  return nullptr;
-}
-
-PerfLib::HandleRecord(perf_event_header *event_header) {
-  if (event_header->type == PERF_RECORD_SAMPLE) {
-    SampleRecord *result = reinterpret_cast<SampleRecord *>(event_data);
-    return result;
-  } else if (event_header->type == PERF_RECORD_FORK) {
-    INFO << "Find out fork";
-    TaskRecord *task_record = reinterpret_cast<ForkRecord *>(event_data);
-    INFO << "tid: " << task_record->tid;
-    INFO << "ptid: " << task_record->ptid;
-    PerfEventOpen(fork_record->tid);
-  } else if
+  return event_data;
 }
 
 void PerfLib::SetupRingBuffer() {
@@ -75,12 +62,15 @@ int PerfLib::PerfEventOpen(pid_t child_pid) {
                                                // scaling
       .sample_period = SAMPLE_PERIOD,          // period of sampling
       .sample_type = SAMPLE_TYPE,              // types of sample we collect
-      .disabled = 1,  // Start the counter in a disabled state
-      .inherit = 0,   // Processes or threads created in the child should
-                      // also be profiled
-      .task = 1,
+      .disabled = 1,        // Start the counter in a disabled state
+      .inherit = 0,         // Processes or threads created in the child should
+                            // also be profiled
+      .task = 1,            // enable fork/exit record
       .exclude_kernel = 1,  // Do not take samples in the kernel
       .exclude_hv = 1,      // Do not take samples in the hypervisor
+      .watermark = 1,       // set up to actually receive overflow notification
+      .wakeup_watermark =
+          1,  // receive overflow notification for all PERF_RECORD types
   };
 
   fd_ = perf_event_open(&pe, child_pid, /*cpu=*/-1, /*group_fd=*/-1,

@@ -26,7 +26,7 @@ struct TaskRecord {
 class PerfLib {
  public:
   int PerfEventOpen(pid_t child_pid);
-  SampleRecord *GetNextRecord();
+  void *GetNextRecord(int *type);
 
   // stop, resume, or reset sampling
   void StartSampling() {

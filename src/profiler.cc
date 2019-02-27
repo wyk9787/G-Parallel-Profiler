@@ -7,9 +7,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <unordered_map>
+#include <vector>
 
 #include "log.h"
 #include "perf_lib.hh"
+
+#define MAX_EPOLL_EVENTS 10
 
 // Type alias for a mapping from function name to number of times occured
 using function_freq_t = std::unordered_map<std::string, size_t>;
@@ -17,52 +20,99 @@ using function_freq_t = std::unordered_map<std::string, size_t>;
 // Mapping from thread id to function frequency table
 std::unordered_map<pid_t, function_freq_t> thread_mapping;
 
-void run_profiler(pid_t child_pid) {
-  INFO << "child_pid: " << child_pid;
-  PerfLib perf_lib;
-  int perf_fd = perf_lib.PerfEventOpen(child_pid);
+// Mapping from perf fd to PerfLib
+std::unordered_map<int, PerfLib> perf_libs;
 
-  int epoll_fd = epoll_create1(/*flags=*/0);
-  REQUIRE(epoll_fd != -1) << "epoll_create1 failed: " << strerror(errno);
+// Mapping from tid to perf fd
+std::unordered_map<pid_t, int> tid_to_fd;
 
-  epoll_event ev;
-  ev.events = EPOLLIN;
-  REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, perf_fd, &ev) != -1)
-      << "epoll_ct ADD failed: " << strerror(errno);
+// Used for epoll
+int epoll_fd;
 
-  perf_lib.StartSampling();
-  bool running = true;
-  epoll_event rev;
-  while (running) {
-    REQUIRE(epoll_wait(epoll_fd, &rev, /*maxevents=*/10, 10) != -1)
-        << "epoll_wait failed: " << strerror(errno);
+pid_t child_pid;
 
-    SampleRecord *record = perf_lib.GetNextRecord();
+void DeleteFromEpoll(int fd) {
+  epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
+  REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev) != -1)
+      << "epoll_ctl DEL failed: " << strerror(errno);
+}
 
-    // If the record exists and is indeed a record we want
-    if (record != nullptr) {
-      void *ip = reinterpret_cast<void *>(record->ip);
-      pid_t tid = static_cast<pid_t>(record->tid);
-      INFO << "ip: " << ip << ", tid: " << tid;
+void AddToEpoll(int fd) {
+  epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
+  REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) != -1)
+      << "epoll_ctl ADD failed: " << strerror(errno);
+}
+
+// Handle the record with corresponding fd
+// Return true if the corresponding thread has exited
+// Otherwise, return false
+bool HandleRecord(int fd) {
+  int type;
+  void *event_data = perf_libs[fd].GetNextRecord(&type);
+
+  // Check to if there is actually data available
+  if (event_data == nullptr) return false;
+
+  if (type == PERF_RECORD_SAMPLE) {
+    SampleRecord *sample_record = reinterpret_cast<SampleRecord *>(event_data);
+    void *ip = reinterpret_cast<void *>(sample_record->ip);
+    pid_t tid = static_cast<pid_t>(sample_record->tid);
+    INFO << "Sample Record = ip: " << ip << ", tid: " << tid;
+  } else if (type == PERF_RECORD_FORK) {
+    // Parse tid out of data
+    TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);
+    INFO << "Fork Reocrd = tid: " << fork_record->tid
+         << ", ppid: " << fork_record->ppid;
+    pid_t tid = fork_record->tid;
+
+    // Start perf_event_open
+    PerfLib p;
+    int perf_fd = p.PerfEventOpen(tid);
+    p.StartSampling();
+
+    // Update global bookkeeping
+    tid_to_fd.insert({tid, perf_fd});
+    AddToEpoll(perf_fd);
+    perf_libs.insert({perf_fd, p});
+  } else if (type == PERF_RECORD_EXIT) {
+    // Parse tid out of data
+    TaskRecord *exit_record = reinterpret_cast<TaskRecord *>(event_data);
+    INFO << "Exit Reocrd = tid: " << exit_record->tid
+         << ", ptid: " << exit_record->ptid;
+    pid_t tid = exit_record->tid;
+    int perf_fd = tid_to_fd[tid];
+
+    // Update global bookkeeping
+    tid_to_fd.erase(tid);
+    DeleteFromEpoll(perf_fd);
+    perf_libs.erase(perf_fd);
+    if (tid == child_pid) {
+      return true;
     }
+  } else {
+    INFO << "Found a missing record!";
+  }
+  return false;
+}
 
-    // Check to see if the child has exited or not
-    int status;
-    int ret = waitpid(child_pid, &status, WNOHANG);
-    REQUIRE(ret != -1) << "waitpid failed: " << strerror(errno);
-    if (ret && WIFEXITED(status)) {
-      INFO << "here";
-      running = false;
+void RunProfiler() {
+  bool running = true;
+  epoll_event ev_list[MAX_EPOLL_EVENTS];
+  while (running) {
+    int ready_num =
+        epoll_wait(epoll_fd, ev_list, MAX_EPOLL_EVENTS, /*timeout=*/10000);
+    REQUIRE(ready_num != -1) << "epoll_wait failed: " << strerror(errno);
+
+    INFO << "Return from epoll, ready_num = " << ready_num;
+    for (int i = 0; i < ready_num; ++i) {
+      if (HandleRecord(ev_list[i].data.fd)) {
+        running = false;
+      }
     }
   }
 
   // Print the count of events from perf_event
-  printf("\nProfiler Output:\n");
-
-  long long count;
-  REQUIRE(read(perf_fd, &count, sizeof(long long)) == sizeof(long long))
-      << "read failed: " << strerror(errno);
-  printf("  ref cycles: %lld\n", count);
+  printf("\nProfiler Finished:\n");
 }
 
 int main(int argc, char **argv) {
@@ -73,12 +123,16 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  // Initialize epoll
+  epoll_fd = epoll_create1(/*flags=*/0);
+  REQUIRE(epoll_fd != -1) << "epoll_create1 failed: " << strerror(errno);
+
   // Create a pipe so the parent can tell the child to exec
   int pipefd[2];
   REQUIRE(pipe(pipefd) == 0) << "pipe failed: " << strerror(errno);
 
   // Create a child process
-  pid_t child_pid = fork();
+  child_pid = fork();
   REQUIRE(child_pid != -1) << "fork failed: " << strerror(errno);
 
   if (child_pid == 0) {
@@ -92,18 +146,24 @@ int main(int argc, char **argv) {
     REQUIRE(execvp(argv[1], &argv[1])) << "execvp failed: " << strerror(errno);
   } else {
     // In the parent process
+    PerfLib p;
+    int perf_fd = p.PerfEventOpen(child_pid);
+    tid_to_fd.insert({child_pid, perf_fd});
+    AddToEpoll(perf_fd);
+    perf_libs.insert({perf_fd, p});
 
-    // Set up perf_event for the child process
+    // Start sampling
+    p.StartSampling();
 
     // Wake up the child process by writing to the pipe
     char c = 'A';
-    REQUIRE(write(pipefd[1], &c, 1) == 1) << "write failed: "
-                                          << strerror(errno);
+    REQUIRE(write(pipefd[1], &c, 1) == 1)
+        << "write failed: " << strerror(errno);
     close(pipefd[0]);
     close(pipefd[1]);
 
     // Start profiling
-    run_profiler(child_pid);
+    RunProfiler();
   }
 
   return 0;

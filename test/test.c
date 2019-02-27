@@ -6,8 +6,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#define THREAD_NUM 2
-#define MULTIPLIER 1000000
+#define THREAD_NUM 3
+#define MULTIPLIER 10000000
 
 void *thread_fn(void *arg) {
   int num = *(int *)arg;
@@ -17,6 +17,7 @@ void *thread_fn(void *arg) {
     sum += rand();
   }
   printf("Done with thread %d, sum = %zu\n", num, sum);
+  sleep(5);
   return NULL;
 }
 
