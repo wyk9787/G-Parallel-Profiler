@@ -15,13 +15,12 @@ struct SampleRecord {
   uint64_t *ips;  // array of instruction pointers in callchains
 };
 
-struct ForkRecord {
+struct TaskRecord {
   uint32_t pid;
   uint32_t ppid;
   uint32_t tid;
   uint32_t ptid;
   uint64_t time;
-  struct sample_id sample_id;
 };
 
 class PerfLib {

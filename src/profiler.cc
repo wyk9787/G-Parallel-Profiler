@@ -18,6 +18,7 @@ using function_freq_t = std::unordered_map<std::string, size_t>;
 std::unordered_map<pid_t, function_freq_t> thread_mapping;
 
 void run_profiler(pid_t child_pid) {
+  INFO << "child_pid: " << child_pid;
   PerfLib perf_lib;
   int perf_fd = perf_lib.PerfEventOpen(child_pid);
 
@@ -47,8 +48,10 @@ void run_profiler(pid_t child_pid) {
 
     // Check to see if the child has exited or not
     int status;
-    waitpid(child_pid, &status, WNOHANG);
-    if (WIFEXITED(status) || WIFSIGNALED(status)) {
+    int ret = waitpid(child_pid, &status, WNOHANG);
+    REQUIRE(ret != -1) << "waitpid failed: " << strerror(errno);
+    if (ret && WIFEXITED(status)) {
+      INFO << "here";
       running = false;
     }
   }
@@ -94,8 +97,8 @@ int main(int argc, char **argv) {
 
     // Wake up the child process by writing to the pipe
     char c = 'A';
-    REQUIRE(write(pipefd[1], &c, 1) == 1)
-        << "write failed: " << strerror(errno);
+    REQUIRE(write(pipefd[1], &c, 1) == 1) << "write failed: "
+                                          << strerror(errno);
     close(pipefd[0]);
     close(pipefd[1]);
 

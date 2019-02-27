@@ -23,7 +23,7 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
 }
 }  // namespace
 
-SampleRecord *PerfLib::GetNextRecord() {
+SampleRecord *PerfLib::GetNextAndHandleRecord() {
   if (!HasNextRecord()) return nullptr;
   perf_event_header *event_header = reinterpret_cast<perf_event_header *>(
       reinterpret_cast<uintptr_t>(data_) +
@@ -35,20 +35,21 @@ SampleRecord *PerfLib::GetNextRecord() {
   // Advance our tail pointer manually
   // Kernel will update this for us
   mmap_header_->data_tail += event_header->size;
+  HandleRecord(event_header);
+  return nullptr;
+}
+
+PerfLib::HandleRecord(perf_event_header *event_header) {
   if (event_header->type == PERF_RECORD_SAMPLE) {
     SampleRecord *result = reinterpret_cast<SampleRecord *>(event_data);
     return result;
-  }
-  if (event_header->type == PERF_RECORD_FORK) {
+  } else if (event_header->type == PERF_RECORD_FORK) {
     INFO << "Find out fork";
-    ForkRecord *fork_record = reinterpret_cast<ForkRecord *>(event_data);
-    INFO << "pid: " << fork_record->pid;
-    INFO << "ppid: " << fork_record->ppid;
-    INFO << "tid: " << fork_record->tid;
-    INFO << "ptid: " << fork_record->ptid;
-    INFO << "time: " << fork_record->time;
-  }
-  return nullptr;
+    TaskRecord *task_record = reinterpret_cast<ForkRecord *>(event_data);
+    INFO << "tid: " << task_record->tid;
+    INFO << "ptid: " << task_record->ptid;
+    PerfEventOpen(fork_record->tid);
+  } else if
 }
 
 void PerfLib::SetupRingBuffer() {
