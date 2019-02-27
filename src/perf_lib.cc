@@ -39,6 +39,15 @@ SampleRecord *PerfLib::GetNextRecord() {
     SampleRecord *result = reinterpret_cast<SampleRecord *>(event_data);
     return result;
   }
+  if (event_header->type == PERF_RECORD_FORK) {
+    INFO << "Find out fork";
+    ForkRecord *fork_record = reinterpret_cast<ForkRecord *>(event_data);
+    INFO << "pid: " << fork_record->pid;
+    INFO << "ppid: " << fork_record->ppid;
+    INFO << "tid: " << fork_record->tid;
+    INFO << "ptid: " << fork_record->ptid;
+    INFO << "time: " << fork_record->time;
+  }
   return nullptr;
 }
 
@@ -65,9 +74,10 @@ int PerfLib::PerfEventOpen(pid_t child_pid) {
                                                // scaling
       .sample_period = SAMPLE_PERIOD,          // period of sampling
       .sample_type = SAMPLE_TYPE,              // types of sample we collect
-      .disabled = 1,        // Start the counter in a disabled state
-      .inherit = 0,         // Processes or threads created in the child should
-                            // also be profiled
+      .disabled = 1,  // Start the counter in a disabled state
+      .inherit = 0,   // Processes or threads created in the child should
+                      // also be profiled
+      .task = 1,
       .exclude_kernel = 1,  // Do not take samples in the kernel
       .exclude_hv = 1,      // Do not take samples in the hypervisor
   };
