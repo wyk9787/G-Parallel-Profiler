@@ -17,6 +17,7 @@
 
 static const char* find_subprogram(intptr_t search_addr,
                                    const dwarf::die& node) {
+  printf("inside find function\n");
   if (node.tag == dwarf::DW_TAG::subprogram && node.has(dwarf::DW_AT::low_pc) &&
       node.has(dwarf::DW_AT::high_pc) && node.has(dwarf::DW_AT::name)) {
     intptr_t low_pc = node[dwarf::DW_AT::low_pc].as_address();
@@ -25,6 +26,7 @@ static const char* find_subprogram(intptr_t search_addr,
       return node[dwarf::DW_AT::name].as_cstr();
     }
   }
+  printf("After if\n");
 
   for (auto& child : node) {
     const char* result = find_subprogram(search_addr, child);
@@ -75,32 +77,41 @@ static const char* AddressToFunction(pid_t pid, void* addr) {
   // Return failure if there was no matching entry in /proc/<pid>/maps
   if (!match_found) return NULL;
 
+  printf("before map find\n");
   auto d = dwarf_map.find(mapped_file);
+  printf("after map find\n");
 
   if (d == dwarf_map.end()) {
+    printf("inside if 1\n");
     int fd = open(mapped_file, O_RDONLY);
     if (fd == -1) return NULL;
 
+    printf("before elf\n");
     elf::elf f(elf::create_mmap_loader(fd));
     if (!f.valid()) {
       close(fd);
       return NULL;
     }
 
+    printf("after elf\n");
     // If this is a dynamically relocated executable, adjust our search address
     // to the offset within the mapped section
     if (f.get_hdr().type == elf::et::dyn) {
       search_address -= start_addr;
     }
+    printf("before emplace\n");
 
     dwarf_map.emplace(mapped_file, dwarf::elf::create_loader(f));
+    printf("after emplace\n");
     d = dwarf_map.find(mapped_file);
 
     // Just to be sure, make sure we actually inserted
     if (d == dwarf_map.end()) return NULL;
   }
+  printf("before for-loop\n");
 
   for (auto cu : d->second.compilation_units()) {
+    printf("inside for\n");
     const char* result = find_subprogram(search_address, cu.root());
     if (result != NULL) return result;
   }

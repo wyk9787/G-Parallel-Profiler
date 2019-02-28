@@ -66,8 +66,9 @@ int PerfLib::PerfEventOpen(pid_t child_pid) {
                             // also be profiled
       .task = 1,            // enable fork/exit record
       .exclude_kernel = 1,  // Do not take samples in the kernel
-      .exclude_hv = 1,      // Do not take samples in the hypervisor
-      .watermark = 1,       // set up to actually receive overflow notification
+      .exclude_callchain_kernel = 1,
+      .exclude_hv = 1,  // Do not take samples in the hypervisor
+      .watermark = 1,   // set up to actually receive overflow notification
       .wakeup_watermark =
           1,  // receive overflow notification for all PERF_RECORD types
   };

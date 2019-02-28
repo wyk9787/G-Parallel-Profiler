@@ -6,7 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define THREAD_NUM 5
+#define THREAD_NUM 4
 #define MULTIPLIER 10000000
 
 void *thread_fn(void *arg) {
