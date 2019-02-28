@@ -11,7 +11,7 @@
 
 namespace {
 // constants for attributes
-constexpr auto SAMPLE_PERIOD = 100000;
+constexpr auto SAMPLE_PERIOD = 1000000;
 constexpr auto SAMPLE_TYPE =
     PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_CALLCHAIN;
 constexpr auto NUM_DATA_PAGES = 256;
@@ -24,7 +24,6 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
 }  // namespace
 
 void *PerfLib::GetNextRecord(int *type) {
-  if (!HasNextRecord()) return nullptr;
   perf_event_header *event_header = reinterpret_cast<perf_event_header *>(
       reinterpret_cast<uintptr_t>(data_) +
       mmap_header_->data_tail % mmap_header_->data_size);
@@ -75,7 +74,13 @@ int PerfLib::PerfEventOpen(pid_t child_pid) {
 
   fd_ = perf_event_open(&pe, child_pid, /*cpu=*/-1, /*group_fd=*/-1,
                         /*flags=*/0);
-  REQUIRE(fd_ != -1) << "perf_event_open failed: " << strerror(errno);
+
+  // We may have missed a thread entirely
+  if (fd_ == -1 && errno == ESRCH) {
+    return -1;
+  } else {
+    REQUIRE(fd_ != -1) << "perf_event_open failed: " << strerror(errno);
+  }
   SetupRingBuffer();
   return fd_;
 }

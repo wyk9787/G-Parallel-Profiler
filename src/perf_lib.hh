@@ -47,14 +47,14 @@ class PerfLib {
         << ")";
   }
 
- private:
-  // Setup the mmap ring buffer
-  void SetupRingBuffer();
-
   // Decide if next record exists or not
   bool HasNextRecord() {
     return mmap_header_->data_head != mmap_header_->data_tail;
   }
+
+ private:
+  // Setup the mmap ring buffer
+  void SetupRingBuffer();
 
   int fd_;
   perf_event_mmap_page *mmap_header_;

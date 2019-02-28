@@ -23,23 +23,18 @@ std::unordered_map<pid_t, function_freq_t> thread_mapping;
 // Mapping from perf fd to PerfLib
 std::unordered_map<int, PerfLib> perf_libs;
 
-// Mapping from tid to perf fd
-std::unordered_map<pid_t, int> tid_to_fd;
-
 // Used for epoll
 int epoll_fd;
 
 pid_t child_pid;
 
 void DeleteFromEpoll(int fd) {
-  INFO << "Deleting " << fd << " from epoll";
   epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
   REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev) != -1)
       << "epoll_ctl DEL failed: " << strerror(errno);
 }
 
 void AddToEpoll(int fd) {
-  INFO << "Adding " << fd << " to epoll";
   epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
   REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) != -1)
       << "epoll_ctl ADD failed: " << strerror(errno);
@@ -49,70 +44,79 @@ void AddToEpoll(int fd) {
 // Return true if the corresponding thread has exited
 // Otherwise, return false
 bool HandleRecord(int fd) {
+  bool main_child_exited = false;
+  bool has_exited = false;
   int type;
-  void *event_data = perf_libs[fd].GetNextRecord(&type);
+  while (perf_libs[fd].HasNextRecord()) {
+    void *event_data = perf_libs[fd].GetNextRecord(&type);
 
-  // Check to if there is actually data available
-  if (event_data == nullptr) {
-    INFO << "NOT AVAILABLE";
-    return false;
-  }
+    if (type == PERF_RECORD_SAMPLE) {
+      SampleRecord *sample_record =
+          reinterpret_cast<SampleRecord *>(event_data);
+      void *ip = reinterpret_cast<void *>(sample_record->ip);
+      pid_t tid = static_cast<pid_t>(sample_record->tid);
+      INFO << "Sample Record = ip: " << ip << ", tid: " << tid;
+    } else if (type == PERF_RECORD_FORK) {
+      // Parse tid out of data
+      TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);
+      INFO << "Fork Reocrd = tid: " << fork_record->tid
+           << ", ppid: " << fork_record->ppid;
+      pid_t tid = fork_record->tid;
 
-  if (type == PERF_RECORD_SAMPLE) {
-    SampleRecord *sample_record = reinterpret_cast<SampleRecord *>(event_data);
-    void *ip = reinterpret_cast<void *>(sample_record->ip);
-    pid_t tid = static_cast<pid_t>(sample_record->tid);
-    INFO << "Sample Record = ip: " << ip << ", tid: " << tid;
-  } else if (type == PERF_RECORD_FORK) {
-    // Parse tid out of data
-    TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);
-    INFO << "Fork Reocrd = tid: " << fork_record->tid
-         << ", ppid: " << fork_record->ppid;
-    pid_t tid = fork_record->tid;
+      // Start perf_event_open
+      PerfLib p;
+      int perf_fd = p.PerfEventOpen(tid);
 
-    // Start perf_event_open
-    PerfLib p;
-    int perf_fd = p.PerfEventOpen(tid);
-    p.StartSampling();
+      // We missed the thread entirely
+      if (perf_fd == -1) {
+        INFO << "We missed the thread " << tid;
+        // Do not start sampling since perf_event_open failed
+        continue;
+      }
+      p.StartSampling();
 
-    // Update global bookkeeping
-    tid_to_fd.insert({tid, perf_fd});
-    AddToEpoll(perf_fd);
-    perf_libs.insert({perf_fd, p});
-  } else if (type == PERF_RECORD_EXIT) {
-    // Parse tid out of data
-    TaskRecord *exit_record = reinterpret_cast<TaskRecord *>(event_data);
-    INFO << "Exit Reocrd = tid: " << exit_record->tid
-         << ", ptid: " << exit_record->ptid;
-    pid_t tid = exit_record->tid;
-    int perf_fd = tid_to_fd[tid];
+      // Update global bookkeeping
+      AddToEpoll(perf_fd);
+      perf_libs.insert({perf_fd, p});
+    } else if (type == PERF_RECORD_EXIT) {
+      has_exited = true;
 
-    // Update global bookkeeping
-    tid_to_fd.erase(tid);
-    DeleteFromEpoll(perf_fd);
-    perf_libs.erase(perf_fd);
-    if (tid == child_pid) {
-      return true;
+      // Parse tid out of data
+      TaskRecord *exit_record = reinterpret_cast<TaskRecord *>(event_data);
+      INFO << "Exit Reocrd = tid: " << exit_record->tid
+           << ", ptid: " << exit_record->ptid;
+      pid_t tid = exit_record->tid;
+
+      // Update global bookkeeping
+      DeleteFromEpoll(fd);
+      if (tid == child_pid) {
+        main_child_exited = true;
+      }
+    } else {
+      INFO << "Found a missing record!";
     }
-  } else {
-    INFO << "Found a missing record!";
   }
-  return false;
+  if (has_exited) {
+    perf_libs.erase(fd);
+  }
+  return main_child_exited;
 }
 
 void RunProfiler() {
   bool running = true;
   epoll_event ev_list[MAX_EPOLL_EVENTS];
   while (running) {
+    memset(ev_list, 0, sizeof(epoll_event) * MAX_EPOLL_EVENTS);
     int ready_num =
-        epoll_wait(epoll_fd, ev_list, MAX_EPOLL_EVENTS, /*timeout=*/10000);
+        epoll_wait(epoll_fd, ev_list, MAX_EPOLL_EVENTS, /*timeout=*/-1);
     REQUIRE(ready_num != -1) << "epoll_wait failed: " << strerror(errno);
+    /* INFO << "ready_num: " << ready_num; */
 
-    if (ready_num == 0) INFO << "TIMEOUT!!!";
     for (int i = 0; i < ready_num; ++i) {
       if (HandleRecord(ev_list[i].data.fd)) {
         running = false;
       }
+      /* running = !HandleRecord(0); */
     }
   }
 
@@ -153,7 +157,6 @@ int main(int argc, char **argv) {
     // In the parent process
     PerfLib p;
     int perf_fd = p.PerfEventOpen(child_pid);
-    tid_to_fd.insert({child_pid, perf_fd});
     AddToEpoll(perf_fd);
     perf_libs.insert({perf_fd, p});
 
