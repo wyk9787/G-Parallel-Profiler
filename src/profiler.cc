@@ -121,7 +121,7 @@ void RunProfiler() {
   }
 
   // Print the count of events from perf_event
-  printf("\nProfiler Finished:\n");
+  printf("\nProfiler Finished\n");
 }
 
 int main(int argc, char **argv) {

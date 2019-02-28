@@ -6,7 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define THREAD_NUM 3
+#define THREAD_NUM 5
 #define MULTIPLIER 10000000
 
 void *thread_fn(void *arg) {
@@ -31,7 +31,6 @@ int main() {
   }
   for (int i = 0; i < THREAD_NUM; i++) {
     pthread_create(&threads[i], NULL, thread_fn, (void *)(&count[i]));
-    /* usleep(1000); */
   }
 
   for (int i = 0; i < THREAD_NUM; i++) {
