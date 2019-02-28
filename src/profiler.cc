@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "inspect.hh"
+#include "inspect.h"
 #include "log.h"
 #include "perf_lib.hh"
 
@@ -41,6 +41,7 @@ void AddToEpoll(int fd) {
       << "epoll_ctl ADD failed: " << strerror(errno);
 }
 
+static int sample_count = 0;
 // Handle the record with corresponding fd
 // Return true if the corresponding thread has exited
 // Otherwise, return false
@@ -56,11 +57,14 @@ bool HandleRecord(int fd) {
           reinterpret_cast<SampleRecord *>(event_data);
       void *ip = reinterpret_cast<void *>(sample_record->ip);
       pid_t tid = static_cast<pid_t>(sample_record->tid);
-      /* INFO << "Sample Record = ip: " << ip << ", tid: " << tid; */
-      const char *ret = AddressToFunction(tid, ip);
-      REQUIRE(ret != NULL) << "Could not find function information";
-      std::string function_name(ret);
-      INFO << "Function name: " << function_name;
+      /* if (sample_count == 0) { */
+      INFO << "Sample Record = ip: " << ip << ", tid: " << tid;
+      /* const char *ret = address_to_function(tid, ip); */
+      /* REQUIRE(ret != NULL) << "Could not find function information"; */
+      /* std::string function_name(ret); */
+      /* INFO << "Function name: " << function_name; */
+      /* } */
+      sample_count++;
     } else if (type == PERF_RECORD_FORK) {
       // Parse tid out of data
       TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);
@@ -127,6 +131,7 @@ void RunProfiler() {
 
   // Print the count of events from perf_event
   printf("\nProfiler Finished\n");
+  INFO << "Sample count: " << sample_count;
 }
 
 int main(int argc, char **argv) {

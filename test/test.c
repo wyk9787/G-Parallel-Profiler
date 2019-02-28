@@ -24,6 +24,7 @@ int main() {
   srand(0);
   pid_t cur_pid = getpid();
   pthread_t threads[THREAD_NUM];
+  printf("%p\n", thread_fn);
   printf("The main pid: %d\n", cur_pid);
   int count[THREAD_NUM];
   for (int i = 0; i < THREAD_NUM; i++) {

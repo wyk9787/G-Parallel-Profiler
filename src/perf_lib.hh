@@ -10,6 +10,7 @@
 
 struct SampleRecord {
   uint64_t ip;    // instruction pointer
+  uint32_t pid;   // process id
   uint32_t tid;   // thread id
   uint64_t nr;    // number of functions in challchains
   uint64_t *ips;  // array of instruction pointers in callchains
