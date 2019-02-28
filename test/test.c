@@ -6,10 +6,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#define THREAD_NUM 3
+#define THREAD_NUM 1
 #define MULTIPLIER 10000000
 
 void *thread_fn(void *arg) {
+  sleep(5);
   int num = *(int *)arg;
   printf("Welcome to thread %d with tid %ld\n", num, syscall(SYS_gettid));
   size_t sum = 0;
@@ -17,7 +18,6 @@ void *thread_fn(void *arg) {
     sum += rand();
   }
   printf("Done with thread %d, sum = %zu\n", num, sum);
-  sleep(5);
   return NULL;
 }
 

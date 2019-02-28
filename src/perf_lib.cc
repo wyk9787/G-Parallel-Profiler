@@ -11,7 +11,7 @@
 
 namespace {
 // constants for attributes
-constexpr auto SAMPLE_PERIOD = 10000;
+constexpr auto SAMPLE_PERIOD = 100000;
 constexpr auto SAMPLE_TYPE =
     PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_CALLCHAIN;
 constexpr auto NUM_DATA_PAGES = 256;

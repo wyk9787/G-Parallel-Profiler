@@ -32,12 +32,14 @@ int epoll_fd;
 pid_t child_pid;
 
 void DeleteFromEpoll(int fd) {
+  INFO << "Deleting " << fd << " from epoll";
   epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
   REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev) != -1)
       << "epoll_ctl DEL failed: " << strerror(errno);
 }
 
 void AddToEpoll(int fd) {
+  INFO << "Adding " << fd << " to epoll";
   epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
   REQUIRE(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) != -1)
       << "epoll_ctl ADD failed: " << strerror(errno);
@@ -51,7 +53,10 @@ bool HandleRecord(int fd) {
   void *event_data = perf_libs[fd].GetNextRecord(&type);
 
   // Check to if there is actually data available
-  if (event_data == nullptr) return false;
+  if (event_data == nullptr) {
+    INFO << "NOT AVAILABLE";
+    return false;
+  }
 
   if (type == PERF_RECORD_SAMPLE) {
     SampleRecord *sample_record = reinterpret_cast<SampleRecord *>(event_data);
@@ -103,7 +108,7 @@ void RunProfiler() {
         epoll_wait(epoll_fd, ev_list, MAX_EPOLL_EVENTS, /*timeout=*/10000);
     REQUIRE(ready_num != -1) << "epoll_wait failed: " << strerror(errno);
 
-    INFO << "Return from epoll, ready_num = " << ready_num;
+    if (ready_num == 0) INFO << "TIMEOUT!!!";
     for (int i = 0; i < ready_num; ++i) {
       if (HandleRecord(ev_list[i].data.fd)) {
         running = false;

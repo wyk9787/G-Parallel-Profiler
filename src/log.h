@@ -37,7 +37,7 @@ class logger : public logger_base {
 
   ~logger() {
     if (_done) {
-      std::cerr << EndColor << "\n";
+      std::cerr << EndColor << std::endl;
       if (_exit) abort();
     }
   }
