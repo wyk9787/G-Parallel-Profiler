@@ -4,7 +4,9 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/perf_event.h>
 #include <sys/ioctl.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
+#include <unistd.h>
 
 #include "log.h"
 
@@ -23,6 +25,13 @@ struct TaskRecord {
   uint32_t ptid;
   uint64_t time;
 };
+
+// constants for attributes
+constexpr auto SAMPLE_PERIOD = 10000000;
+constexpr auto SAMPLE_TYPE =
+    PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_CALLCHAIN;
+constexpr auto NUM_DATA_PAGES = 256;
+constexpr auto PAGE_SIZE = 0x1000LL;
 
 class PerfLib {
  public:

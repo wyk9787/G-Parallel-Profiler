@@ -1,24 +1,13 @@
 #include "perf_lib.hh"
 
-#include <asm/unistd.h>
-#include <linux/perf_event.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 
 #include "log.h"
 
 namespace {
-// constants for attributes
-constexpr auto SAMPLE_PERIOD = 100000000;
-constexpr auto SAMPLE_TYPE =
-    PERF_SAMPLE_IP | PERF_SAMPLE_TID | PERF_SAMPLE_CALLCHAIN;
-constexpr auto NUM_DATA_PAGES = 256;
-constexpr auto PAGE_SIZE = 0x1000LL;
-
-static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
-                            int cpu, int group_fd, unsigned long flags) {
+long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, int cpu,
+                     int group_fd, unsigned long flags) {
   return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
 }
 }  // namespace

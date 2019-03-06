@@ -6,10 +6,12 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <algorithm>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
-#include "inspect.hh"
+#include "inspect.h"
 #include "log.h"
 #include "perf_lib.hh"
 
@@ -21,13 +23,21 @@ using function_freq_t = std::unordered_map<std::string, size_t>;
 // Mapping from thread id to function frequency table
 std::unordered_map<pid_t, function_freq_t> thread_mapping;
 
+// Mapping from thread id to the total number of samples collected in this
+// thread
+std::unordered_map<pid_t, size_t> thread_sample_count;
+
 // Mapping from perf fd to PerfLib
 std::unordered_map<int, PerfLib> perf_libs;
 
 // Used for epoll
 int epoll_fd;
 
+// Main child pid
 pid_t child_pid;
+
+// Total number of samples collected so far
+static size_t sample_count = 0;
 
 void DeleteFromEpoll(int fd) {
   epoll_event ev = {.events = EPOLLIN, {.fd = fd}};
@@ -41,7 +51,6 @@ void AddToEpoll(int fd) {
       << "epoll_ctl ADD failed: " << strerror(errno);
 }
 
-static int sample_count = 0;
 // Handle the record with corresponding fd
 // Return true if the corresponding thread has exited
 // Otherwise, return false
@@ -57,14 +66,42 @@ bool HandleRecord(int fd) {
           reinterpret_cast<SampleRecord *>(event_data);
       void *ip = reinterpret_cast<void *>(sample_record->ip);
       pid_t tid = static_cast<pid_t>(sample_record->tid);
-      if (sample_count == 0) {
-        INFO << "Sample Record = ip: " << ip << ", tid: " << tid;
-        const char *ret = AddressToFunction(tid, ip);
-        /* REQUIRE(ret != NULL) << "Could not find function information"; */
-        /* std::string function_name(ret); */
-        /* INFO << "Function name: " << function_name; */
+      uint64_t num_funcs = sample_record->nr;
+      uint64_t *ips = reinterpret_cast<uint64_t *>(&(sample_record->ips));
+
+      // NOTE: Only happen when sample period is not large enough (<= 1000000)
+      if (tid == 0 || tid > 100000) {
+        INFO << "Found a wierd record: tid = " << tid << ", ip = " << ip;
       }
+
+      std::string function_name = "";
+      const char *ret = address_to_function(tid, ip);
+      if (ret == NULL) {
+        function_name = "somewhere";
+        /* INFO << "RETURN NULL!!!: " << ip << ", " << tid; */
+      } else {
+        function_name = std::string(ret);
+      }
+
+      // Update bookkeeping data structures
+      thread_mapping[tid][function_name]++;
+      thread_sample_count[tid]++;
       sample_count++;
+
+      /* if (sample_count < 3) { */
+      /* INFO << "Sample record: ip = " << ip << ", tid = " << tid; */
+      for (size_t i = 0; i < num_funcs; ++i) {
+        void *cur_ip = reinterpret_cast<void *>(ips[i]);
+        const char *ret = address_to_function(tid, cur_ip);
+        if (ret == NULL) {
+          function_name = "callchain somewhere";
+        } else {
+          function_name = std::string(ret);
+          INFO << function_name;
+        }
+      }
+      /* } */
+
     } else if (type == PERF_RECORD_FORK) {
       // Parse tid out of data
       TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);
@@ -98,6 +135,8 @@ bool HandleRecord(int fd) {
 
       // Update global bookkeeping
       DeleteFromEpoll(fd);
+
+      // Check to see if the main child has exited or not
       if (tid == child_pid) {
         main_child_exited = true;
       }
@@ -130,8 +169,32 @@ void RunProfiler() {
   }
 
   // Print the count of events from perf_event
-  printf("\nProfiler Finished\n");
-  INFO << "Sample count: " << sample_count;
+  printf("\nProfiler Output:\n");
+
+  // Loop through every thread
+  for (auto p : thread_mapping) {
+    std::cout << "  Thread " << p.first << ":" << std::endl;
+    size_t total_count = thread_sample_count[p.first];
+
+    // Sort the function-to-count mapping by its value (count)
+    // Since the two functions can possibly have the same sample count (very
+    // unlikely in large programs), we use multimap instead of map here
+    std::multimap<size_t, std::string, std::greater<size_t>> dst;
+    std::transform(
+        p.second.begin(), p.second.end(), std::inserter(dst, dst.begin()),
+        [](const std::pair<std::string, size_t> &tmp) {
+          return std::pair<size_t, std::string>(tmp.second, tmp.first);
+        });
+
+    for (const auto &q : dst) {
+      std::cout << "    " << q.second << ": " << q.first * SAMPLE_PERIOD
+                << " cycles "
+                << static_cast<double>(q.first) / total_count * 100 << "%"
+                << std::endl;
+    }
+  }
+  std::cout << "Total: " << sample_count * SAMPLE_PERIOD << " cycles"
+            << std::endl;
 }
 
 int main(int argc, char **argv) {
