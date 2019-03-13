@@ -66,8 +66,6 @@ bool HandleRecord(int fd) {
           reinterpret_cast<SampleRecord *>(event_data);
       void *ip = reinterpret_cast<void *>(sample_record->ip);
       pid_t tid = static_cast<pid_t>(sample_record->tid);
-      uint64_t num_funcs = sample_record->nr;
-      uint64_t *ips = reinterpret_cast<uint64_t *>(&(sample_record->ips));
 
       // NOTE: Only happen when sample period is not large enough (<= 1000000)
       if (tid == 0 || tid > 100000) {
@@ -88,20 +86,19 @@ bool HandleRecord(int fd) {
       thread_sample_count[tid]++;
       sample_count++;
 
-      /* if (sample_count < 3) { */
-      /* INFO << "Sample record: ip = " << ip << ", tid = " << tid; */
-      for (size_t i = 0; i < num_funcs; ++i) {
-        void *cur_ip = reinterpret_cast<void *>(ips[i]);
-        const char *ret = address_to_function(tid, cur_ip);
-        if (ret == NULL) {
-          function_name = "callchain somewhere";
-        } else {
-          function_name = std::string(ret);
-          INFO << function_name;
-        }
-      }
+      // TODO: Integrates callchain
+      /* uint64_t num_funcs = sample_record->nr; */
+      /* uint64_t *ips = reinterpret_cast<uint64_t *>(&(sample_record->ips)); */
+      /* for (size_t i = 0; i < num_funcs; ++i) { */
+      /*   void *cur_ip = reinterpret_cast<void *>(ips[i]); */
+      /*   const char *ret = address_to_function(tid, cur_ip); */
+      /*   if (ret == NULL) { */
+      /*     function_name = "callchain somewhere"; */
+      /*   } else { */
+      /*     function_name = std::string(ret); */
+      /*     INFO << function_name; */
+      /*   } */
       /* } */
-
     } else if (type == PERF_RECORD_FORK) {
       // Parse tid out of data
       TaskRecord *fork_record = reinterpret_cast<TaskRecord *>(event_data);

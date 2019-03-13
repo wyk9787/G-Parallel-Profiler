@@ -30,7 +30,12 @@ cd test
 make clean all
 cd ..
 make clean all
+
+# Running a test program that uses four threads to do some random computation
 ./g-profiler test/test
+
+# Running a password cracker program that cracks passwords in multiple threads
+./g-profiler test/password-cracker test/passwords.txt
 ```
 
 

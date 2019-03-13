@@ -1,5 +1,5 @@
 CXX       	 := clang++
-CXXFLAGS 	   := --std=c++11 -g -Wall $(shell pkg-config --libs --cflags libelf++ libdwarf++)
+CXXFLAGS 	   := --std=c++11 -g -Wall $(shell pkg-config --libs --cflags libelf++ libdwarf++) 
 SRC_DIR      := ./src
 TEST_DIR     := ./test
 TARGET       := g-profiler
