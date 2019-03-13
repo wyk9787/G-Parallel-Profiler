@@ -10,6 +10,7 @@
 
 #include "log.h"
 
+// Memory mapping for PERF_SAMPLE_RECORD
 struct SampleRecord {
   uint64_t ip;    // instruction pointer
   uint32_t pid;   // process id
@@ -18,6 +19,7 @@ struct SampleRecord {
   uint64_t *ips;  // array of instruction pointers in callchains
 };
 
+// Memory mapping for PERF_FORK_RECORD and PERF_EXIT_RECORD
 struct TaskRecord {
   uint32_t pid;
   uint32_t ppid;
@@ -33,9 +35,12 @@ constexpr auto SAMPLE_TYPE =
 constexpr auto NUM_DATA_PAGES = 256;
 constexpr auto PAGE_SIZE = 0x1000LL;
 
+// A wrapper library around perf_event_open to sample and get records
 class PerfLib {
  public:
   int PerfEventOpen(pid_t child_pid);
+
+  // Return next record and store the type of the record in type
   void *GetNextRecord(int *type);
 
   // stop, resume, or reset sampling
@@ -66,9 +71,9 @@ class PerfLib {
   // Setup the mmap ring buffer
   void SetupRingBuffer();
 
-  int fd_;
-  perf_event_mmap_page *mmap_header_;
-  void *data_;
+  int fd_;                             // fd associated with this perf call
+  perf_event_mmap_page *mmap_header_;  // header section for mmap region
+  void *data_;                         // data section for mmap region
 };
 
 #endif  // PERF_LIB_HH

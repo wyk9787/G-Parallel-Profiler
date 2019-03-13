@@ -75,8 +75,9 @@ bool HandleRecord(int fd) {
       std::string function_name = "";
       const char *ret = address_to_function(tid, ip);
       if (ret == NULL) {
+        // NOTE: We cannot find the function name for this address
+        // Most likely, the address resides in libc
         function_name = "somewhere";
-        /* INFO << "RETURN NULL!!!: " << ip << ", " << tid; */
       } else {
         function_name = std::string(ret);
       }
@@ -87,6 +88,9 @@ bool HandleRecord(int fd) {
       sample_count++;
 
       // TODO: Integrates callchain
+      // Callchain works but since we cannot retrieve most of the function name,
+      // this is useless for now.
+
       /* uint64_t num_funcs = sample_record->nr; */
       /* uint64_t *ips = reinterpret_cast<uint64_t *>(&(sample_record->ips)); */
       /* for (size_t i = 0; i < num_funcs; ++i) { */
@@ -155,13 +159,11 @@ void RunProfiler() {
     int ready_num =
         epoll_wait(epoll_fd, ev_list, MAX_EPOLL_EVENTS, /*timeout=*/-1);
     REQUIRE(ready_num != -1) << "epoll_wait failed: " << strerror(errno);
-    /* INFO << "ready_num: " << ready_num; */
 
     for (int i = 0; i < ready_num; ++i) {
       if (HandleRecord(ev_list[i].data.fd)) {
         running = false;
       }
-      /* running = !HandleRecord(0); */
     }
   }
 
