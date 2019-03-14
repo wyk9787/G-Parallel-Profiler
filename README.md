@@ -36,6 +36,9 @@ make clean all
 
 # Running a password cracker program that cracks passwords in multiple threads
 ./g-profiler test/password-cracker test/passwords.txt
+
+# Running a single thread computational intensive program (doesn't do anything)
+./g-profielr test/calc
 ```
 
 

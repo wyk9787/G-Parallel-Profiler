@@ -1,15 +1,13 @@
-CC      := clang
-CCFLAGS := -std=c11 -g -Wall
-LDFLAGS := -lpthread -lcrypto -lm
+CC     := clang
+CFLAGS := -g -Wall 
+LFLAGS := -lpthread -lm -lcrypto
+SRCS   := $(wildcard *.c)
 
-all: test password-cracker
-
-test: test.c
-	$(CC) $(CCFLAGS) $(LDFLAGS) -o $@ $^	
-
-password-cracker: password-cracker.c
-	$(CC) $(CCFLAGS) $(LDFLAGS) -o $@ $^	
+all: $(SRCS:.c=)
 
 clean:
-	rm test
-	rm password-cracker
+	    rm -rf $(SRCS:.c=)
+
+%: %.c
+	    $(CC) $(CFLAGS) $(LFLAGS) -o $@ $^
+
